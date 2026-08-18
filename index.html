@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="BOOM VS TROUGH Australian economic indicators dashboard">
+  <title>BOOM VS TROUGH — Economic Dashboard</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <div class="eyebrow">ECONOMIC DATA DASHBOARD</div>
+      <h1>BOOM <span>VS</span> TROUGH</h1>
+      <p>Explore the monthly economic indicators in the current dataset.</p>
+      <div id="status" class="status">Loading dataset…</div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="controls card">
+      <div>
+        <label for="metric">Indicator</label>
+        <select id="metric"></select>
+      </div>
+      <div>
+        <label for="fromDate">From</label>
+        <select id="fromDate"></select>
+      </div>
+      <div>
+        <label for="toDate">To</label>
+        <select id="toDate"></select>
+      </div>
+      <div class="control-actions">
+        <button id="resetBtn" class="secondary">Reset</button>
+      </div>
+    </section>
+
+    <section class="stats">
+      <article class="stat card">
+        <span class="stat-label">Latest</span>
+        <strong id="latestValue">—</strong>
+        <small id="latestDate">—</small>
+      </article>
+      <article class="stat card">
+        <span class="stat-label">Minimum</span>
+        <strong id="minValue">—</strong>
+      </article>
+      <article class="stat card">
+        <span class="stat-label">Maximum</span>
+        <strong id="maxValue">—</strong>
+      </article>
+      <article class="stat card">
+        <span class="stat-label">Observations</span>
+        <strong id="rowCount">—</strong>
+      </article>
+    </section>
+
+    <section class="card chart-card">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">TIME SERIES</span>
+          <h2 id="chartTitle">Indicator</h2>
+        </div>
+        <span id="rangeLabel" class="pill">—</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="mainChart"></canvas>
+      </div>
+    </section>
+
+    <section class="card data-card">
+      <div class="section-heading table-heading">
+        <div>
+          <span class="eyebrow">RAW DATA</span>
+          <h2>Monthly observations</h2>
+        </div>
+        <input id="search" type="search" placeholder="Search rows…" autocomplete="off">
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th>Date</th>
+              <th>CPI</th>
+              <th>OCR</th>
+              <th>Δ OCR</th>
+              <th>MP</th>
+              <th>WPI</th>
+              <th>Unemployment</th>
+              <th>Underemployment</th>
+              <th>Participation</th>
+              <th>Underutilisation</th>
+              <th>Fiscal position</th>
+              <th>Fiscal stance</th>
+              <th>GDP change</th>
+            </tr>
+          </thead>
+          <tbody id="dataBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer>
+      <span>Source: supplied CSV dataset</span>
+      <span id="datasetInfo">—</span>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
