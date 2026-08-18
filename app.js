@@ -157,6 +157,88 @@ function updateStats(field, dataRows) {
   $("maxValue").textContent = formatValue(Math.max(...values), field);
 }
 
+
+
+const periodBackgroundPlugin = {
+  id: "periodBackground",
+
+  beforeDraw(chart) {
+    const { ctx, chartArea, scales } = chart;
+
+    if (!chartArea || !scales.x) return;
+
+    const displayedRows = chart.data.periodRows;
+
+    if (!displayedRows || !displayedRows.length) return;
+
+    const groups = [];
+    let start = 0;
+
+    for (let i = 1; i <= displayedRows.length; i++) {
+      const current = displayedRows[i]?.timePeriod || "";
+      const previous = displayedRows[i - 1]?.timePeriod || "";
+
+      if (i === displayedRows.length || current !== previous) {
+        if (previous) {
+          groups.push({
+            label: previous,
+            start,
+            end: i - 1
+          });
+        }
+
+        start = i;
+      }
+    }
+
+    ctx.save();
+
+    groups.forEach((group, index) => {
+      let left = scales.x.getPixelForValue(group.start);
+      let right = scales.x.getPixelForValue(group.end);
+
+      if (group.start > 0) {
+        const previousX =
+          scales.x.getPixelForValue(group.start - 1);
+        left = (previousX + left) / 2;
+      }
+
+      if (group.end < displayedRows.length - 1) {
+        const nextX =
+          scales.x.getPixelForValue(group.end + 1);
+        right = (right + nextX) / 2;
+      }
+
+      ctx.fillStyle =
+        index % 2 === 0
+          ? "rgba(21, 23, 28, 0.045)"
+          : "rgba(21, 23, 28, 0.015)";
+
+      ctx.fillRect(
+        left,
+        chartArea.top,
+        right - left,
+        chartArea.bottom - chartArea.top
+      );
+
+      ctx.fillStyle = "rgba(21, 23, 28, 0.55)";
+      ctx.font = "700 11px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+
+      ctx.fillText(
+        group.label,
+        (left + right) / 2,
+        chartArea.top + 8
+      );
+    });
+
+    ctx.restore();
+  }
+};
+
+
+
 function updateChart() {
   const field = FIELD_INFO.find(item => item.key === $("metric").value);
   const dataRows = filteredRows();
@@ -167,9 +249,13 @@ function updateChart() {
   }
 
   chart = new Chart($("mainChart").getContext("2d"), {
+    plugins: [periodBackgroundPlugin],
+    
     type: "line",
     data: {
       labels: dataRows.map(row => row.month),
+      periodRows: dataRows,
+
       datasets: [{
         label: field.label,
         data: dataRows.map(row => row[field.key]),
@@ -177,7 +263,7 @@ function updateChart() {
         borderWidth: 2.5,
         pointRadius: 2,
         pointHoverRadius: 5,
-        tension: 0.25
+        tension: 0
       }]
     },
     options: {
@@ -206,6 +292,14 @@ function updateChart() {
           beginAtZero: false,
           ticks: {
             callback: value => field.percent ? `${value}%` : value
+          },
+          grid: {
+            color: context => context.tick.value === 0
+              ? "#15171c"
+              : "#e4e6eb",
+            lineWidth: context => context.tick.value === 0
+              ? 2
+              : 1
           }
         }
       }
