@@ -320,8 +320,8 @@ function updateChart() {
           },
           grid: {
             color: context => context.tick.value === 0
-              ? "#15171c"
-              : "#e4e6eb",
+              ? "#d9dedb"
+              : "#1d3c1d",
             lineWidth: context => context.tick.value === 0
               ? 2
               : 1
