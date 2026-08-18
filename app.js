@@ -132,29 +132,54 @@ function filteredRows() {
 }
 
 function updateStats(field, dataRows) {
-  const values = dataRows
-    .map(row => row[field.key])
-    .filter(value => value !== null && Number.isFinite(Number(value)))
-    .map(Number);
+  const validRows = dataRows.filter(
+    row => row[field.key] !== null &&
+           row[field.key] !== undefined &&
+           Number.isFinite(Number(row[field.key]))
+  );
 
   $("rowCount").textContent = String(dataRows.length);
 
-  if (!values.length) {
+  if (!validRows.length) {
     $("latestValue").textContent = "—";
     $("latestDate").textContent = "No data";
+
     $("minValue").textContent = "—";
+    $("minDate").textContent = "—";
+
     $("maxValue").textContent = "—";
+    $("maxDate").textContent = "—";
+
     return;
   }
 
-  const latest = [...dataRows]
-    .reverse()
-    .find(row => row[field.key] !== null && row[field.key] !== undefined);
+  const latest = validRows[validRows.length - 1];
 
-  $("latestValue").textContent = formatValue(latest[field.key], field);
-  $("latestDate").textContent = latest.month || "—";
-  $("minValue").textContent = formatValue(Math.min(...values), field);
-  $("maxValue").textContent = formatValue(Math.max(...values), field);
+  const minRow = validRows.reduce((min, row) =>
+    Number(row[field.key]) < Number(min[field.key]) ? row : min
+  );
+
+  const maxRow = validRows.reduce((max, row) =>
+    Number(row[field.key]) > Number(max[field.key]) ? row : max
+  );
+
+  $("latestValue").textContent =
+    formatValue(latest[field.key], field);
+
+  $("latestDate").textContent =
+    latest.month || "—";
+
+  $("minValue").textContent =
+    formatValue(minRow[field.key], field);
+
+  $("minDate").textContent =
+    minRow.month || "—";
+
+  $("maxValue").textContent =
+    formatValue(maxRow[field.key], field);
+
+  $("maxDate").textContent =
+    maxRow.month || "—";
 }
 
 

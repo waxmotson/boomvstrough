@@ -1,10 +1,10 @@
 :root {
-  --bg: #fff;
-  --text: #111;
-  --muted: #666;
-  --border: #ccc;
-  --light: #f3f3f3;
-  --zero: #111;
+  --bg: rgb(29, 32, 31);;
+  --text: #fff;
+  --muted: #aaa;
+  --border: #071304;
+  --light: #2a3229;
+  --zero: #ebebeb;
 }
 
 * {
@@ -111,7 +111,7 @@ button {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   border-bottom: 1px solid var(--border);
   margin-bottom: 25px;
 }
