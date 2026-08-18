@@ -1,143 +1,124 @@
 const FIELD_INFO = [
-  { key: "cpi", label: "CPI" },
-  { key: "ocr", label: "OCR" },
-  { key: "ocr_change", label: "OCR change" },
-  { key: "wpi", label: "WPI" },
-  { key: "unemployment", label: "Unemployment" },
-  { key: "underemployment", label: "Underemployment" },
-  { key: "participation", label: "Participation" },
-  { key: "underutilisation", label: "Underutilisation" },
-  { key: "fiscal_position", label: "Fiscal position ($B)" },
-  { key: "fiscal_stance", label: "Fiscal stance" },
-  { key: "gdp_change", label: "GDP change" }
+  { key: "cpi", label: "CPI change", source: "CPI Change", percent: true },
+  { key: "ocr", label: "OCR", source: "OCR", percent: true },
+  { key: "ocr_change", label: "OCR change", source: "OCR Change", percent: true },
+  { key: "wpi", label: "WPI change", source: "WPI Change", percent: true },
+  { key: "unemployment", label: "Unemployment", source: "UNEMP", percent: true },
+  { key: "underemployment", label: "Underemployment", source: "UNDEREMP", percent: true },
+  { key: "participation", label: "Participation", source: "PARTIC", percent: true },
+  { key: "underutilisation", label: "Underutilisation", source: "UNDERUTILISE", percent: true },
+  { key: "fiscal_position", label: "Fiscal position ($B)", source: "FP ($B)", percent: false },
+  { key: "gdp_change", label: "GDP change", source: "?GDP(1/4)", percent: true }
 ];
-
-const PERCENT_KEYS = new Set([
-  "cpi", "ocr", "ocr_change", "wpi", "unemployment",
-  "participation", "gdp_change"
-]);
 
 let rows = [];
 let chart = null;
 
 const $ = id => document.getElementById(id);
 
-function cleanHeader(value) {
-  return String(value ?? "").trim();
-}
-
 function toNumber(value) {
   if (value === null || value === undefined) return null;
+
   const text = String(value).trim();
   if (!text || text === "?" || text === "-" || text === "—") return null;
 
-  const cleaned = text.replace(/,/g, "").replace(/%/g, "");
-  const number = Number(cleaned);
+  const number = Number(
+    text
+      .replace(/,/g, "")
+      .replace(/%/g, "")
+      .replace(/\$/g, "")
+  );
+
   return Number.isFinite(number) ? number : null;
 }
 
-function parseDateLabel(value) {
+function parseMonth(value) {
   const text = String(value ?? "").trim();
+
+  // Handles the existing dataset format, e.g. Sep-19.
   const match = text.match(/^([A-Za-z]{3})-(\d{2})$/);
-  if (!match) return null;
 
-  const monthNames = {
-    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
-    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
-  };
-
-  const month = monthNames[match[1]];
-  const year = Number(match[2]);
-  if (month === undefined || !Number.isFinite(year)) return null;
-
-  // Dataset uses two-digit years; interpret 00–79 as 2000–2079.
-  return new Date(2000 + year, month, 1);
-}
-
-function formatValue(value, key) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
-
-  if (PERCENT_KEYS.has(key)) {
-    return `${Number(value).toFixed(2)}%`;
+  if (!match) {
+    // Also allow normal browser-readable dates if the CSV is changed later.
+    const fallback = new Date(text);
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
   }
 
-  if (key === "fiscal_position") {
-    return Number(value).toFixed(1);
-  }
-
-  return Number(value).toFixed(1);
-}
-
-function sourceValue(row, headers, wanted) {
-  if (wanted in row) return row[wanted];
-
-  const key = wanted.toLowerCase().trim();
-  const match = headers.find(h => h.toLowerCase().trim() === key);
-  return match ? row[match] : null;
-}
-
-function normaliseRow(raw, headers) {
-  // This handles the column names from the supplied spreadsheet while being
-  // tolerant of harmless changes such as whitespace.
-  const normalised = {};
-  const lookup = {};
-
-  headers.forEach(h => {
-    lookup[cleanHeader(h)] = h;
-  });
-
-  const get = (...names) => {
-    for (const name of names) {
-      const direct = lookup[name];
-      if (direct !== undefined) return raw[direct];
-
-      const lower = name.toLowerCase();
-      const found = headers.find(h => h.toLowerCase().trim() === lower);
-      if (found !== undefined) return raw[found];
-    }
-    return "";
+  const months = {
+    Jan: 0, Feb: 1, Mar: 2, Apr: 3,
+    May: 4, Jun: 5, Jul: 6, Aug: 7,
+    Sep: 8, Oct: 9, Nov: 10, Dec: 11
   };
 
-  const date = String(get("Unnamed: 1", "Date", "date")).trim();
+  const month = months[match[1]];
+  if (month === undefined) return null;
 
+  return new Date(2000 + Number(match[2]), month, 1);
+}
+
+function clean(value) {
+  return String(value ?? "").trim();
+}
+
+function formatValue(value, field) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return "—";
+  }
+
+  const number = Number(value);
+
+  if (field.percent) return `${number.toFixed(2)}%`;
+  if (field.key === "fiscal_position") return number.toFixed(1);
+
+  return number.toFixed(1);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function normaliseRow(raw) {
   return {
-    event: String(get("Unnamed: 0", "Event", "event")).trim(),
-    date,
-    dateValue: parseDateLabel(date),
+    timePeriod: clean(raw["Time period"]),
+    month: clean(raw["Month"]),
+    monthValue: parseMonth(raw["Month"]),
 
-    cpi: toNumber(get("? CPI", "CPI", "cpi")),
-    ocr: toNumber(get("OCR", "ocr")),
-    ocr_change: toNumber(get("? OCR", "OCR change", "ocr_change")),
-    monetary_policy: String(get("MP", "Monetary policy", "monetary_policy")).trim(),
+    cpi: toNumber(raw["CPI Change"]),
+    ocr: toNumber(raw["OCR"]),
+    ocr_change: toNumber(raw["OCR Change"]),
+    monetary_policy: clean(raw["MP"]),
 
-    wpi: toNumber(get("? WPI", "WPI", "wpi")),
-    unemployment: toNumber(get("UNEMP", "Unemployment", "unemployment")),
-    underemployment: toNumber(get("UNDEREMP", "Underemployment", "underemployment")),
-    participation: toNumber(get("PARTIC", "Participation", "participation")),
-    underutilisation: toNumber(get("UNDERUTILISE", "Underutilisation", "underutilisation")),
+    wpi: toNumber(raw["WPI Change"]),
+    unemployment: toNumber(raw["UNEMP"]),
+    underemployment: toNumber(raw["UNDEREMP"]),
+    participation: toNumber(raw["PARTIC"]),
+    underutilisation: toNumber(raw["UNDERUTILISE"]),
 
-    fiscal_position: toNumber(get("FP ($B)", "Fiscal position", "fiscal_position")),
-    fiscal_stance: String(get("FP STANCE", "Fiscal stance", "fiscal_stance")).trim(),
-    gdp_change: toNumber(get("?GDP(1/4)", "GDP change", "gdp_change"))
+    fiscal_position: toNumber(raw["FP ($B)"]),
+    fiscal_stance: clean(raw["FP STANCE"]),
+    gdp_change: toNumber(raw["?GDP(1/4)"])
   };
 }
 
 function populateControls() {
   $("metric").innerHTML = FIELD_INFO
-    .filter(x => x.key !== "fiscal_stance")
-    .map(x => `<option value="${x.key}">${x.label}</option>`)
+    .map(field => `<option value="${field.key}">${escapeHtml(field.label)}</option>`)
     .join("");
 
-  const dates = rows.map(r => r.date);
-  const options = dates
-    .map((d, i) => `<option value="${i}">${escapeHtml(d)}</option>`)
-    .join("");
+  const options = rows.map((row, index) =>
+    `<option value="${index}">${escapeHtml(row.month)}</option>`
+  ).join("");
 
   $("fromDate").innerHTML = options;
   $("toDate").innerHTML = options;
 
   $("fromDate").value = "0";
-  $("toDate").value = String(Math.max(rows.length - 1, 0));
+  $("toDate").value = String(rows.length - 1);
   $("metric").value = "cpi";
 }
 
@@ -146,50 +127,52 @@ function filteredRows() {
   let to = Number($("toDate").value);
 
   if (from > to) [from, to] = [to, from];
+
   return rows.slice(from, to + 1);
 }
 
-function updateStats(key, dataRows) {
+function updateStats(field, dataRows) {
   const values = dataRows
-    .map(r => r[key])
-    .filter(v => v !== null && v !== undefined && Number.isFinite(Number(v)))
+    .map(row => row[field.key])
+    .filter(value => value !== null && Number.isFinite(Number(value)))
     .map(Number);
 
   $("rowCount").textContent = String(dataRows.length);
 
   if (!values.length) {
     $("latestValue").textContent = "—";
-    $("latestDate").textContent = "No values in range";
+    $("latestDate").textContent = "No data";
     $("minValue").textContent = "—";
     $("maxValue").textContent = "—";
     return;
   }
 
-  const latest = [...dataRows].reverse().find(r => r[key] !== null && r[key] !== undefined);
+  const latest = [...dataRows]
+    .reverse()
+    .find(row => row[field.key] !== null && row[field.key] !== undefined);
 
-  $("latestValue").textContent = formatValue(latest[key], key);
-  $("latestDate").textContent = latest.date || "—";
-  $("minValue").textContent = formatValue(Math.min(...values), key);
-  $("maxValue").textContent = formatValue(Math.max(...values), key);
+  $("latestValue").textContent = formatValue(latest[field.key], field);
+  $("latestDate").textContent = latest.month || "—";
+  $("minValue").textContent = formatValue(Math.min(...values), field);
+  $("maxValue").textContent = formatValue(Math.max(...values), field);
 }
 
 function updateChart() {
-  const key = $("metric").value;
-  const info = FIELD_INFO.find(x => x.key === key);
+  const field = FIELD_INFO.find(item => item.key === $("metric").value);
   const dataRows = filteredRows();
 
-  const labels = dataRows.map(r => r.date);
-  const values = dataRows.map(r => r[key]);
-
-  if (chart) chart.destroy();
+  if (chart) {
+    chart.destroy();
+    chart = null;
+  }
 
   chart = new Chart($("mainChart").getContext("2d"), {
     type: "line",
     data: {
-      labels,
+      labels: dataRows.map(row => row.month),
       datasets: [{
-        label: info.label,
-        data: values,
+        label: field.label,
+        data: dataRows.map(row => row[field.key]),
         spanGaps: true,
         borderWidth: 2.5,
         pointRadius: 2,
@@ -208,7 +191,8 @@ function updateChart() {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: context => `${info.label}: ${formatValue(context.parsed.y, key)}`
+            label: context =>
+              `${field.label}: ${formatValue(context.parsed.y, field)}`
           }
         }
       },
@@ -221,19 +205,20 @@ function updateChart() {
         y: {
           beginAtZero: false,
           ticks: {
-            callback: value =>
-              key === "fiscal_position" ? value : `${value}%`
+            callback: value => field.percent ? `${value}%` : value
           }
         }
       }
     }
   });
 
-  $("chartTitle").textContent = info.label;
-  $("rangeLabel").textContent =
-    `${dataRows[0]?.date || "—"} → ${dataRows[dataRows.length - 1]?.date || "—"}`;
+  $("chartTitle").textContent = field.label;
 
-  updateStats(key, dataRows);
+  const first = dataRows[0]?.month || "—";
+  const last = dataRows[dataRows.length - 1]?.month || "—";
+  $("rangeLabel").textContent = `${first} → ${last}`;
+
+  updateStats(field, dataRows);
 }
 
 function renderTable() {
@@ -241,44 +226,52 @@ function renderTable() {
 
   const filtered = rows.filter(row => {
     if (!query) return true;
-    return Object.entries(row).some(([key, value]) => {
-      if (key === "dateValue") return false;
-      return value !== null &&
-        value !== undefined &&
-        String(value).toLowerCase().includes(query);
-    });
+
+    return [
+      row.timePeriod,
+      row.month,
+      row.monetary_policy,
+      row.fiscal_stance,
+      row.cpi,
+      row.ocr,
+      row.ocr_change,
+      row.wpi,
+      row.unemployment,
+      row.underemployment,
+      row.participation,
+      row.underutilisation,
+      row.fiscal_position,
+      row.gdp_change
+    ].some(value =>
+      value !== null &&
+      value !== undefined &&
+      String(value).toLowerCase().includes(query)
+    );
   });
 
-  $("dataBody").innerHTML = filtered.map(r => `
+  $("dataBody").innerHTML = filtered.map(row => `
     <tr>
-      <td>${escapeHtml(r.event || "—")}</td>
-      <td>${escapeHtml(r.date || "—")}</td>
-      <td>${formatValue(r.cpi, "cpi")}</td>
-      <td>${formatValue(r.ocr, "ocr")}</td>
-      <td>${formatValue(r.ocr_change, "ocr_change")}</td>
-      <td class="tag">${escapeHtml(r.monetary_policy || "—")}</td>
-      <td>${formatValue(r.wpi, "wpi")}</td>
-      <td>${formatValue(r.unemployment, "unemployment")}</td>
-      <td>${formatValue(r.underemployment, "underemployment")}</td>
-      <td>${formatValue(r.participation, "participation")}</td>
-      <td>${formatValue(r.underutilisation, "underutilisation")}</td>
-      <td>${formatValue(r.fiscal_position, "fiscal_position")}</td>
-      <td class="tag">${escapeHtml(r.fiscal_stance || "—")}</td>
-      <td>${formatValue(r.gdp_change, "gdp_change")}</td>
+      <td class="period">${escapeHtml(row.timePeriod || "—")}</td>
+      <td>${escapeHtml(row.month || "—")}</td>
+      <td>${formatValue(row.cpi, FIELD_INFO[0])}</td>
+      <td>${formatValue(row.ocr, FIELD_INFO[1])}</td>
+      <td>${formatValue(row.ocr_change, FIELD_INFO[2])}</td>
+      <td class="tag">${escapeHtml(row.monetary_policy || "—")}</td>
+      <td>${formatValue(row.wpi, FIELD_INFO[3])}</td>
+      <td>${formatValue(row.unemployment, FIELD_INFO[4])}</td>
+      <td>${formatValue(row.underemployment, FIELD_INFO[5])}</td>
+      <td>${formatValue(row.participation, FIELD_INFO[6])}</td>
+      <td>${formatValue(row.underutilisation, FIELD_INFO[7])}</td>
+      <td>${formatValue(row.fiscal_position, FIELD_INFO[8])}</td>
+      <td class="tag">${escapeHtml(row.fiscal_stance || "—")}</td>
+      <td>${formatValue(row.gdp_change, FIELD_INFO[9])}</td>
     </tr>
   `).join("");
 }
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
 async function loadCsv() {
+  // The timestamp prevents GitHub Pages/browser caching from making an
+  // updated CSV appear to be the old version.
   const response = await fetch(`data.csv?v=${Date.now()}`, {
     cache: "no-store"
   });
@@ -295,33 +288,62 @@ async function loadCsv() {
     dynamicTyping: false
   });
 
-  if (parsed.errors?.length) {
+  if (parsed.errors && parsed.errors.length) {
     console.warn("CSV parsing warnings:", parsed.errors);
   }
 
+  const required = [
+    "Time period",
+    "Month",
+    "CPI Change",
+    "OCR",
+    "OCR Change",
+    "MP",
+    "WPI Change",
+    "UNEMP",
+    "UNDEREMP",
+    "PARTIC",
+    "UNDERUTILISE",
+    "FP ($B)",
+    "FP STANCE",
+    "?GDP(1/4)"
+  ];
+
+  const headers = parsed.meta.fields || [];
+  const missing = required.filter(column => !headers.includes(column));
+
+  if (missing.length) {
+    throw new Error(`Missing CSV columns: ${missing.join(", ")}`);
+  }
+
   rows = parsed.data
-    .map(row => normaliseRow(row, parsed.meta.fields || []))
-    .filter(row => row.date)
+    .map(normaliseRow)
+    .filter(row => row.month)
     .sort((a, b) => {
-      if (a.dateValue && b.dateValue) return a.dateValue - b.dateValue;
-      return String(a.date).localeCompare(String(b.date));
+      if (a.monthValue && b.monthValue) {
+        return a.monthValue - b.monthValue;
+      }
+
+      return row.month.localeCompare(b.month);
     });
 
   if (!rows.length) {
-    throw new Error("The CSV was loaded but contained no dated rows.");
+    throw new Error("The CSV contains no usable rows.");
   }
 }
 
 async function init() {
   try {
     await loadCsv();
+
     populateControls();
     updateChart();
     renderTable();
 
     $("status").textContent = `${rows.length} observations loaded`;
+
     $("datasetInfo").textContent =
-      `${rows.length} rows · ${rows[0].date} → ${rows[rows.length - 1].date}`;
+      `${rows.length} rows · ${rows[0].month} → ${rows[rows.length - 1].month}`;
 
     $("metric").addEventListener("change", updateChart);
     $("fromDate").addEventListener("change", updateChart);
@@ -333,15 +355,20 @@ async function init() {
       $("fromDate").value = "0";
       $("toDate").value = String(rows.length - 1);
       $("search").value = "";
+
       updateChart();
       renderTable();
     });
   } catch (error) {
     console.error(error);
+
     $("status").textContent = "Unable to load dataset";
+
     document.querySelector("main").insertAdjacentHTML(
       "afterbegin",
-      `<div class="error"><strong>Dataset error:</strong> ${escapeHtml(error.message)}</div>`
+      `<div class="error">
+        <strong>Dataset error:</strong> ${escapeHtml(error.message)}
+      </div>`
     );
   }
 }

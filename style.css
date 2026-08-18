@@ -63,6 +63,8 @@ body {
   font-size: 12px;
 }
 
+.wrap { position: relative; }
+
 main {
   padding: 24px 0 60px;
 }
@@ -205,7 +207,7 @@ table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
-  min-width: 1300px;
+  min-width: 1400px;
 }
 
 th, td {
@@ -231,6 +233,10 @@ tbody tr:hover { background: #fafbfc; }
 .tag {
   font-weight: 700;
   text-transform: lowercase;
+}
+
+.period {
+  font-weight: 700;
 }
 
 footer {
@@ -274,5 +280,8 @@ footer {
   .control-actions { grid-column: auto; }
   .chart-card { padding: 16px; }
   .table-heading { padding: 16px 16px 14px; }
-  .section-heading { align-items: flex-start; flex-direction: column; }
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
