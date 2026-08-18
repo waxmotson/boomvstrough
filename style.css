@@ -84,6 +84,7 @@ select,
 input,
 button {
   font: inherit;
+  background: var(--light);
 }
 
 select,
@@ -93,7 +94,7 @@ input {
   padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 0;
-  background: white;
+  background: var(--light);
   color: var(--text);
 }
 
