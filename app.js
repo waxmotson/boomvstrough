@@ -138,7 +138,7 @@ function updateStats(field, dataRows) {
            Number.isFinite(Number(row[field.key]))
   );
 
-  $("rowCount").textContent = String(dataRows.length);
+  // $("rowCount").textContent = String(dataRows.length);
 
   if (!validRows.length) {
     $("latestValue").textContent = "—";
