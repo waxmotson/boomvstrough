@@ -1,34 +1,43 @@
+// ============================================================
+//  BOOM VS TROUGH — dashboard logic
+//  New: multi-series chart selection + point-in-time comparison
+// ============================================================
+
 const FIELD_INFO = [
-  { key: "cpi", label: "CPI change", source: "CPI Change", percent: true },
-  { key: "ocr", label: "OCR", source: "OCR", percent: true },
-  { key: "ocr_change", label: "OCR change", source: "OCR Change", percent: true },
-  { key: "wpi", label: "WPI change", source: "WPI Change", percent: true },
-  { key: "unemployment", label: "Unemployment", source: "UNEMP", percent: true },
-  { key: "underemployment", label: "Underemployment", source: "UNDEREMP", percent: true },
-  { key: "participation", label: "Participation", source: "PARTIC", percent: true },
-  { key: "underutilisation", label: "Underutilisation", source: "UNDERUTILISE", percent: true },
-  { key: "fiscal_position", label: "Fiscal position ($B)", source: "FP ($B)", percent: false },
-  { key: "gdp_change", label: "GDP change", source: "?GDP(1/4)", percent: true }
+  { key: "cpi",               label: "CPI change",       source: "CPI Change",    percent: true,  color: "#4fc3f7" },
+  { key: "ocr",               label: "OCR",              source: "OCR",           percent: true,  color: "#ffb74d" },
+  { key: "ocr_change",        label: "OCR change",       source: "OCR Change",    percent: true,  color: "#ba68c8" },
+  { key: "wpi",               label: "WPI change",       source: "WPI Change",    percent: true,  color: "#81c784" },
+  { key: "unemployment",      label: "Unemployment",     source: "UNEMP",         percent: true,  color: "#e57373" },
+  { key: "underemployment",   label: "Underemployment",  source: "UNDEREMP",      percent: true,  color: "#f06292" },
+  { key: "participation",     label: "Participation",    source: "PARTIC",        percent: true,  color: "#aed581" },
+  { key: "underutilisation",  label: "Underutilisation", source: "UNDERUTILISE",  percent: true,  color: "#ffd54f" },
+  { key: "fiscal_position",   label: "Fiscal position",  source: "FP ($B)",       percent: false, color: "#4db6ac" },
+  { key: "gdp_change",        label: "GDP change",       source: "?GDP(1/4)",     percent: true,  color: "#ff8a65" }
 ];
 
+const DEFAULT_SERIES = ["cpi", "ocr"];
+
 let rows = [];
-let chart = null;
+let chart = null;            // main time-series chart
+let compareChart = null;     // snapshot bar chart
+let activeLineFields = [];   // FIELD_INFO per dataset index of the line chart
+let compareFields = [];      // FIELD_INFO per bar index of the comparison chart
+let selectedSeries = new Set(DEFAULT_SERIES);
 
 const $ = id => document.getElementById(id);
+
+// ---------- helpers ----------
 
 function toNumber(value) {
   if (value === null || value === undefined) return null;
 
   const text = String(value).trim();
-  if (!text || text === "?" || text === "-" || text === "—") return null;
+  if (!text || text === "?" || text === "-" || text === "—" || text.toLowerCase() === "n/a") {
+    return null;
+  }
 
-  const number = Number(
-    text
-      .replace(/,/g, "")
-      .replace(/%/g, "")
-      .replace(/\$/g, "")
-  );
-
+  const number = Number(text.replace(/,/g, "").replace(/%/g, "").replace(/\$/g, ""));
   return Number.isFinite(number) ? number : null;
 }
 
@@ -39,7 +48,6 @@ function parseMonth(value) {
   const match = text.match(/^([A-Za-z]{3})-(\d{2})$/);
 
   if (!match) {
-    // Also allow normal browser-readable dates if the CSV is changed later.
     const fallback = new Date(text);
     return Number.isNaN(fallback.getTime()) ? null : fallback;
   }
@@ -68,19 +76,23 @@ function formatValue(value, field) {
   const number = Number(value);
 
   if (field.percent) return `${number.toFixed(2)}%`;
-  if (field.key === "fiscal_position") return number.toFixed(1);
-
   return number.toFixed(1);
 }
 
 function escapeHtml(value) {
   return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
+
+function getSelectedFields() {
+  return FIELD_INFO.filter(field => selectedSeries.has(field.key));
+}
+
+// ---------- data loading ----------
 
 function normaliseRow(raw) {
   return {
@@ -105,21 +117,87 @@ function normaliseRow(raw) {
   };
 }
 
-function populateControls() {
-  $("metric").innerHTML = FIELD_INFO
-    .map(field => `<option value="${field.key}">${escapeHtml(field.label)}</option>`)
-    .join("");
+async function loadCsv() {
+  // Cache-buster so an updated CSV shows up immediately on GitHub Pages.
+  const response = await fetch(`data.csv?v=${Date.now()}`, { cache: "no-store" });
 
-  const options = rows.map((row, index) =>
+  if (!response.ok) {
+    throw new Error(`Could not load data.csv (${response.status})`);
+  }
+
+  const csvText = await response.text();
+
+  const parsed = Papa.parse(csvText, {
+    header: true,
+    skipEmptyLines: true,
+    dynamicTyping: false
+  });
+
+  if (parsed.errors && parsed.errors.length) {
+    console.warn("CSV parsing warnings:", parsed.errors);
+  }
+
+  const required = [
+    "Time period", "Month", "CPI Change", "OCR", "OCR Change", "MP",
+    "WPI Change", "UNEMP", "UNDEREMP", "PARTIC", "UNDERUTILISE",
+    "FP ($B)", "FP STANCE", "?GDP(1/4)"
+  ];
+
+  const headers = parsed.meta.fields || [];
+  const missing = required.filter(column => !headers.includes(column));
+
+  if (missing.length) {
+    throw new Error(`Missing CSV columns: ${missing.join(", ")}`);
+  }
+
+  rows = parsed.data
+    .map(normaliseRow)
+    .filter(row => row.month)
+    .sort((a, b) => {
+      if (a.monthValue && b.monthValue) return a.monthValue - b.monthValue;
+      return row.month.localeCompare(b.month);
+    });
+
+  if (!rows.length) {
+    throw new Error("The CSV contains no usable rows.");
+  }
+}
+
+// ---------- controls ----------
+
+function populateControls() {
+  // Series chips (replaces the old single-select #metric)
+  $("metricChips").innerHTML = FIELD_INFO.map(field => `
+    <label class="chip${selectedSeries.has(field.key) ? " checked" : ""}">
+      <input type="checkbox" value="${field.key}"${selectedSeries.has(field.key) ? " checked" : ""}>
+      <span class="chip-dot" style="background:${field.color}"></span>
+      ${escapeHtml(field.label)}
+    </label>
+  `).join("");
+
+  const monthOptions = rows.map((row, index) =>
     `<option value="${index}">${escapeHtml(row.month)}</option>`
   ).join("");
 
-  $("fromDate").innerHTML = options;
-  $("toDate").innerHTML = options;
+  $("fromDate").innerHTML = monthOptions;
+  $("toDate").innerHTML = monthOptions;
+  $("compareDate").innerHTML = monthOptions;
 
   $("fromDate").value = "0";
   $("toDate").value = String(rows.length - 1);
-  $("metric").value = "cpi";
+  $("compareDate").value = String(defaultCompareIndex());
+}
+
+// Latest month that actually has data for any ticked series
+// (skips the trailing empty filler rows at the end of the CSV).
+function defaultCompareIndex() {
+  const fields = getSelectedFields();
+
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (fields.some(field => rows[i][field.key] !== null)) return i;
+  }
+
+  return Math.max(rows.length - 1, 0);
 }
 
 function filteredRows() {
@@ -131,58 +209,59 @@ function filteredRows() {
   return rows.slice(from, to + 1);
 }
 
-function updateStats(field, dataRows) {
-  const validRows = dataRows.filter(
-    row => row[field.key] !== null &&
-           row[field.key] !== undefined &&
-           Number.isFinite(Number(row[field.key]))
-  );
+// ---------- statistics (one card per selected series) ----------
 
-  // $("rowCount").textContent = String(dataRows.length);
+function updateStats(fields, dataRows) {
+  const grid = $("statsGrid");
 
-  if (!validRows.length) {
-    $("latestValue").textContent = "—";
-    $("latestDate").textContent = "No data";
-
-    $("minValue").textContent = "—";
-    $("minDate").textContent = "—";
-
-    $("maxValue").textContent = "—";
-    $("maxDate").textContent = "—";
-
+  if (!fields.length) {
+    grid.innerHTML = `
+      <div class="stat">
+        <span class="stat-label">Statistics</span>
+        <strong>—</strong>
+        <small>Tick one or more series above</small>
+      </div>`;
     return;
   }
 
-  const latest = validRows[validRows.length - 1];
+  grid.innerHTML = fields.map(field => {
+    const validRows = dataRows.filter(
+      row => row[field.key] !== null && Number.isFinite(Number(row[field.key]))
+    );
 
-  const minRow = validRows.reduce((min, row) =>
-    Number(row[field.key]) < Number(min[field.key]) ? row : min
-  );
+    if (!validRows.length) {
+      return `
+        <div class="stat">
+          <span class="stat-label"><span class="dot" style="background:${field.color}"></span>${escapeHtml(field.label)}</span>
+          <strong>—</strong>
+          <small>No data in range</small>
+        </div>`;
+    }
 
-  const maxRow = validRows.reduce((max, row) =>
-    Number(row[field.key]) > Number(max[field.key]) ? row : max
-  );
+    const latest = validRows[validRows.length - 1];
 
-  $("latestValue").textContent =
-    formatValue(latest[field.key], field);
+    const minRow = validRows.reduce((min, row) =>
+      Number(row[field.key]) < Number(min[field.key]) ? row : min
+    );
 
-  $("latestDate").textContent =
-    latest.month || "—";
+    const maxRow = validRows.reduce((max, row) =>
+      Number(row[field.key]) > Number(max[field.key]) ? row : max
+    );
 
-  $("minValue").textContent =
-    formatValue(minRow[field.key], field);
-
-  $("minDate").textContent =
-    minRow.month || "—";
-
-  $("maxValue").textContent =
-    formatValue(maxRow[field.key], field);
-
-  $("maxDate").textContent =
-    maxRow.month || "—";
+    return `
+      <div class="stat">
+        <span class="stat-label"><span class="dot" style="background:${field.color}"></span>${escapeHtml(field.label)}</span>
+        <strong>${formatValue(latest[field.key], field)}</strong>
+        <small>${escapeHtml(latest.month || "—")}</small>
+        <div class="stat-sub">
+          Min ${formatValue(minRow[field.key], field)} (${escapeHtml(minRow.month)})
+          · Max ${formatValue(maxRow[field.key], field)} (${escapeHtml(maxRow.month)})
+        </div>
+      </div>`;
+  }).join("");
 }
 
-
+// ---------- period shading plugin (unchanged behaviour, dark-theme colours) ----------
 
 const periodBackgroundPlugin = {
   id: "periodBackground",
@@ -193,7 +272,6 @@ const periodBackgroundPlugin = {
     if (!chartArea || !scales.x) return;
 
     const displayedRows = chart.data.periodRows;
-
     if (!displayedRows || !displayedRows.length) return;
 
     const groups = [];
@@ -204,14 +282,7 @@ const periodBackgroundPlugin = {
       const previous = displayedRows[i - 1]?.timePeriod || "";
 
       if (i === displayedRows.length || current !== previous) {
-        if (previous) {
-          groups.push({
-            label: previous,
-            start,
-            end: i - 1
-          });
-        }
-
+        if (previous) groups.push({ label: previous, start, end: i - 1 });
         start = i;
       }
     }
@@ -223,49 +294,35 @@ const periodBackgroundPlugin = {
       let right = scales.x.getPixelForValue(group.end);
 
       if (group.start > 0) {
-        const previousX =
-          scales.x.getPixelForValue(group.start - 1);
-        left = (previousX + left) / 2;
+        left = (scales.x.getPixelForValue(group.start - 1) + left) / 2;
       }
 
       if (group.end < displayedRows.length - 1) {
-        const nextX =
-          scales.x.getPixelForValue(group.end + 1);
-        right = (right + nextX) / 2;
+        right = (right + scales.x.getPixelForValue(group.end + 1)) / 2;
       }
 
       ctx.fillStyle =
         index % 2 === 0
-          ? "rgba(21, 23, 28, 0.045)"
-          : "rgba(21, 23, 28, 0.015)";
+          ? "rgba(255, 255, 255, 0.045)"
+          : "rgba(255, 255, 255, 0.015)";
 
-      ctx.fillRect(
-        left,
-        chartArea.top,
-        right - left,
-        chartArea.bottom - chartArea.top
-      );
+      ctx.fillRect(left, chartArea.top, right - left, chartArea.bottom - chartArea.top);
 
-      ctx.fillStyle = "rgba(21, 23, 28, 0.55)";
+      ctx.fillStyle = "rgba(255, 255, 255, 0.65)";
       ctx.font = "700 11px Inter, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-
-      ctx.fillText(
-        group.label,
-        (left + right) / 2,
-        chartArea.top + 8
-      );
+      ctx.fillText(group.label, (left + right) / 2, chartArea.top + 8);
     });
 
     ctx.restore();
   }
 };
 
-
+// ---------- main multi-series time-series chart ----------
 
 function updateChart() {
-  const field = FIELD_INFO.find(item => item.key === $("metric").value);
+  const fields = getSelectedFields();
   const dataRows = filteredRows();
 
   if (chart) {
@@ -273,72 +330,212 @@ function updateChart() {
     chart = null;
   }
 
+  const first = dataRows[0]?.month || "—";
+  const last = dataRows[dataRows.length - 1]?.month || "—";
+  $("rangeLabel").textContent = `${first} → ${last}`;
+
+  updateStats(fields, dataRows);
+
+  if (!fields.length) {
+    $("chartTitle").textContent = "No series selected";
+    return;
+  }
+
+  $("chartTitle").textContent =
+    fields.length === 1 ? fields[0].label : `${fields.length} series`;
+
+  activeLineFields = fields;
+  const allPercent = fields.every(field => field.percent);
+
   chart = new Chart($("mainChart").getContext("2d"), {
     plugins: [periodBackgroundPlugin],
-    
+
     type: "line",
     data: {
       labels: dataRows.map(row => row.month),
       periodRows: dataRows,
 
-      datasets: [{
+      datasets: fields.map(field => ({
         label: field.label,
         data: dataRows.map(row => row[field.key]),
+        borderColor: field.color,
+        pointBackgroundColor: field.color,
+        pointBorderColor: field.color,
         spanGaps: true,
         borderWidth: 2.5,
         pointRadius: 2,
         pointHoverRadius: 5,
         tension: 0
-      }]
+      }))
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      interaction: {
-        mode: "index",
-        intersect: false
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          labels: { color: "#dddddd", boxWidth: 24, boxHeight: 3 }
+        },
+        tooltip: {
+          callbacks: {
+            label: context =>
+              `${context.dataset.label}: ${formatValue(context.parsed.y, activeLineFields[context.datasetIndex])}`
+          }
+        }
       },
+      scales: {
+        x: {
+          ticks: { maxTicksLimit: 12, color: "#aaaaaa" },
+          grid: { color: "rgba(255, 255, 255, 0.06)" }
+        },
+        y: {
+          beginAtZero: false,
+          ticks: {
+            color: "#aaaaaa",
+            callback: value => allPercent ? `${value}%` : value
+          },
+          grid: {
+            color: context => context.tick.value === 0
+              ? "#ebebeb"
+              : "rgba(255, 255, 255, 0.08)",
+            lineWidth: context => context.tick.value === 0 ? 2 : 1
+          }
+        }
+      }
+    }
+  });
+}
+
+// ---------- point-in-time comparison (NEW) ----------
+
+function renderComparison() {
+  const fields = getSelectedFields();
+  const index = Number($("compareDate").value);
+  const row = rows[index];
+
+  if (compareChart) {
+    compareChart.destroy();
+    compareChart = null;
+  }
+
+  $("compareMonthLabel").textContent = row ? row.month : "—";
+
+  if (!row || !fields.length) {
+    $("compareTiles").innerHTML =
+      `<p class="cmp-empty">${!fields.length
+        ? "Tick at least one series above to run a comparison."
+        : "No data."}</p>`;
+    $("compareMeta").textContent = "";
+    return;
+  }
+
+  // Policy context for the chosen month
+  const bits = [];
+  if (row.monetary_policy && row.monetary_policy !== "N/A") {
+    bits.push(`MP: ${escapeHtml(row.monetary_policy)}`);
+  }
+  if (row.fiscal_stance) {
+    bits.push(`Fiscal stance: ${escapeHtml(row.fiscal_stance)}`);
+  }
+  $("compareMeta").innerHTML = bits.join(" &nbsp;·&nbsp; ");
+
+  // Rank selected series at this month (highest first, missing data sinks)
+  const entries = fields
+    .map(field => ({ field, value: row[field.key] }))
+    .sort((a, b) => (b.value ?? -Infinity) - (a.value ?? -Infinity));
+
+  const numeric = entries.filter(entry => entry.value !== null);
+
+  let tiles = entries.map((entry, i) => {
+    const best = numeric.length > 1 && entry === numeric[0];
+    const worst = numeric.length > 1 && entry === numeric[numeric.length - 1];
+    const unit = entry.field.key === "fiscal_position"
+      ? `<span class="cmp-unit">$B</span>`
+      : "";
+
+    return `
+      <div class="cmp-tile${best ? " cmp-best" : ""}${worst ? " cmp-worst" : ""}">
+        <span class="cmp-rank">#${i + 1}</span>
+        <span class="cmp-name">
+          <span class="dot" style="background:${entry.field.color}"></span>${escapeHtml(entry.field.label)}
+        </span>
+        <div class="cmp-value">${formatValue(entry.value, entry.field)}${unit}</div>
+      </div>`;
+  }).join("");
+
+  // Spread only meaningful when all compared values share the same unit family
+  const sameFamily = numeric.length > 1 &&
+    numeric.every(entry => entry.field.percent === numeric[0].field.percent);
+
+  if (sameFamily) {
+    const spread = numeric[0].value - numeric[numeric.length - 1].value;
+    tiles += `
+      <div class="cmp-tile cmp-spread">
+        <span class="cmp-name">Spread (max − min)</span>
+        <div class="cmp-value">${formatValue(spread, numeric[0].field)}</div>
+      </div>`;
+  }
+
+  $("compareTiles").innerHTML = tiles;
+
+  if (!numeric.length) {
+    $("compareTiles").innerHTML +=
+      `<p class="cmp-empty">No numeric values for the selected series at ${escapeHtml(row.month)}.</p>`;
+    return;
+  }
+
+  // Horizontal bar chart on a shared axis
+  compareFields = numeric.map(entry => entry.field);
+  const allPercent = compareFields.every(field => field.percent);
+
+  compareChart = new Chart($("compareChart").getContext("2d"), {
+    type: "bar",
+    data: {
+      labels: numeric.map(entry => entry.field.label),
+      datasets: [{
+        data: numeric.map(entry => entry.value),
+        backgroundColor: numeric.map(entry => entry.field.color),
+        borderRadius: 3,
+        barThickness: 20
+      }]
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
         tooltip: {
           callbacks: {
             label: context =>
-              `${field.label}: ${formatValue(context.parsed.y, field)}`
+              `${formatValue(context.parsed.x, compareFields[context.dataIndex])}`
           }
         }
       },
       scales: {
         x: {
           ticks: {
-            maxTicksLimit: 12
-          }
-        },
-        y: {
-          beginAtZero: false,
-          ticks: {
-            callback: value => field.percent ? `${value}%` : value
+            color: "#aaaaaa",
+            callback: value => allPercent ? `${value}%` : value
           },
           grid: {
             color: context => context.tick.value === 0
-              ? "#d9dedb"
-              : "#1d3c1d",
-            lineWidth: context => context.tick.value === 0
-              ? 2
-              : 1
+              ? "#ebebeb"
+              : "rgba(255, 255, 255, 0.08)",
+            lineWidth: context => context.tick.value === 0 ? 2 : 1
           }
+        },
+        y: {
+          ticks: { color: "#dddddd" },
+          grid: { display: false }
         }
       }
     }
   });
-
-  $("chartTitle").textContent = field.label;
-
-  const first = dataRows[0]?.month || "—";
-  const last = dataRows[dataRows.length - 1]?.month || "—";
-  $("rangeLabel").textContent = `${first} → ${last}`;
-
-  updateStats(field, dataRows);
 }
+
+// ---------- raw data table (unchanged behaviour) ----------
 
 function renderTable() {
   const query = $("search").value.trim().toLowerCase();
@@ -347,20 +544,10 @@ function renderTable() {
     if (!query) return true;
 
     return [
-      row.timePeriod,
-      row.month,
-      row.monetary_policy,
-      row.fiscal_stance,
-      row.cpi,
-      row.ocr,
-      row.ocr_change,
-      row.wpi,
-      row.unemployment,
-      row.underemployment,
-      row.participation,
-      row.underutilisation,
-      row.fiscal_position,
-      row.gdp_change
+      row.timePeriod, row.month, row.monetary_policy, row.fiscal_stance,
+      row.cpi, row.ocr, row.ocr_change, row.wpi, row.unemployment,
+      row.underemployment, row.participation, row.underutilisation,
+      row.fiscal_position, row.gdp_change
     ].some(value =>
       value !== null &&
       value !== undefined &&
@@ -388,68 +575,7 @@ function renderTable() {
   `).join("");
 }
 
-async function loadCsv() {
-  // The timestamp prevents GitHub Pages/browser caching from making an
-  // updated CSV appear to be the old version.
-  const response = await fetch(`data.csv?v=${Date.now()}`, {
-    cache: "no-store"
-  });
-
-  if (!response.ok) {
-    throw new Error(`Could not load data.csv (${response.status})`);
-  }
-
-  const csvText = await response.text();
-
-  const parsed = Papa.parse(csvText, {
-    header: true,
-    skipEmptyLines: true,
-    dynamicTyping: false
-  });
-
-  if (parsed.errors && parsed.errors.length) {
-    console.warn("CSV parsing warnings:", parsed.errors);
-  }
-
-  const required = [
-    "Time period",
-    "Month",
-    "CPI Change",
-    "OCR",
-    "OCR Change",
-    "MP",
-    "WPI Change",
-    "UNEMP",
-    "UNDEREMP",
-    "PARTIC",
-    "UNDERUTILISE",
-    "FP ($B)",
-    "FP STANCE",
-    "?GDP(1/4)"
-  ];
-
-  const headers = parsed.meta.fields || [];
-  const missing = required.filter(column => !headers.includes(column));
-
-  if (missing.length) {
-    throw new Error(`Missing CSV columns: ${missing.join(", ")}`);
-  }
-
-  rows = parsed.data
-    .map(normaliseRow)
-    .filter(row => row.month)
-    .sort((a, b) => {
-      if (a.monthValue && b.monthValue) {
-        return a.monthValue - b.monthValue;
-      }
-
-      return row.month.localeCompare(b.month);
-    });
-
-  if (!rows.length) {
-    throw new Error("The CSV contains no usable rows.");
-  }
-}
+// ---------- init ----------
 
 async function init() {
   try {
@@ -457,25 +583,39 @@ async function init() {
 
     populateControls();
     updateChart();
+    renderComparison();
     renderTable();
 
     $("status").textContent = `${rows.length} observations loaded`;
-
     $("datasetInfo").textContent =
       `${rows.length} rows · ${rows[0].month} → ${rows[rows.length - 1].month}`;
 
-    $("metric").addEventListener("change", updateChart);
+    // Event wiring
+    $("metricChips").addEventListener("change", event => {
+      const box = event.target.closest("input[type='checkbox']");
+      if (!box) return;
+
+      if (box.checked) selectedSeries.add(box.value);
+      else selectedSeries.delete(box.value);
+
+      box.closest(".chip").classList.toggle("checked", box.checked);
+
+      updateChart();
+      renderComparison();
+    });
+
     $("fromDate").addEventListener("change", updateChart);
     $("toDate").addEventListener("change", updateChart);
+    $("compareDate").addEventListener("change", renderComparison);
     $("search").addEventListener("input", renderTable);
 
     $("resetBtn").addEventListener("click", () => {
-      $("metric").value = "cpi";
-      $("fromDate").value = "0";
-      $("toDate").value = String(rows.length - 1);
+      selectedSeries = new Set(DEFAULT_SERIES);
       $("search").value = "";
 
+      populateControls();
       updateChart();
+      renderComparison();
       renderTable();
     });
   } catch (error) {
@@ -485,9 +625,7 @@ async function init() {
 
     document.querySelector("main").insertAdjacentHTML(
       "afterbegin",
-      `<div class="error">
-        <strong>Dataset error:</strong> ${escapeHtml(error.message)}
-      </div>`
+      `<p class="error">Dataset error: ${escapeHtml(error.message)}</p>`
     );
   }
 }

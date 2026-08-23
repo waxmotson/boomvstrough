@@ -1,111 +1,108 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="BOOM VS TROUGH Australian economic indicators dashboard">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BOOM VS TROUGH — Economic Dashboard</title>
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
 <body>
   <header class="hero">
     <div class="wrap">
-      <!-- <div class="eyebrow">ECONOMIC DATA DASHBOARD</div> -->
+      <p class="eyebrow">ECONOMIC DATA DASHBOARD</p>
       <h1>BOOM <span>VS</span> TROUGH</h1>
       <p>THE CON!!!</p>
-      <div id="status" class="status">Loading dataset…</div>
+      <span class="status" id="status">Loading dataset…</span>
     </div>
   </header>
 
   <main class="wrap">
-    <section class="controls card">
-      <div>
-        <label for="metric">Indicator</label>
-        <select id="metric"></select>
+
+    <!-- Controls: series chips replace the old single-select -->
+    <section class="controls">
+      <div class="control control-series">
+        <label>Data series <span class="pill">(tick one or more)</span></label>
+        <div class="chip-row" id="metricChips"></div>
       </div>
-      <div>
+
+      <div class="control">
         <label for="fromDate">From</label>
         <select id="fromDate"></select>
       </div>
-      <div>
+
+      <div class="control">
         <label for="toDate">To</label>
         <select id="toDate"></select>
       </div>
+
       <div class="control-actions">
-        <button id="resetBtn" class="secondary">Reset</button>
+        <button id="resetBtn" type="button">Reset</button>
       </div>
     </section>
 
-    <section class="stats">
-      <article class="stat card">
-        <span class="stat-label">Latest</span>
-        <strong id="latestValue">—</strong>
-        <small id="latestDate">—</small>
-      </article>
-      <article class="stat card">
-        <span class="stat-label">Minimum</span>
-        <strong id="minValue">—</strong>
-        <small id="minDate">—</small>
-      </article>
-
-      <article class="stat card">
-        <span class="stat-label">Maximum</span>
-        <strong id="maxValue">—</strong>
-        <small id="maxDate">—</small>
-      </article>
-      <!-- <article class="stat card">
-        <span class="stat-label">Observations</span>
-        <strong id="rowCount">—</strong>
-      </article> -->
+    <!-- One stat card per selected series (rendered by JS) -->
+    <section class="stats" id="statsGrid">
+      <div class="stat"><span class="stat-label">Latest</span><strong>—</strong><small>—</small></div>
+      <div class="stat"><span class="stat-label">Minimum</span><strong>—</strong><small>—</small></div>
+      <div class="stat"><span class="stat-label">Maximum</span><strong>—</strong><small>—</small></div>
     </section>
 
-    <section class="card chart-card">
+    <!-- Multi-series time series chart -->
+    <section class="chart-card">
       <div class="section-heading">
         <div>
-          <span class="eyebrow">TIME SERIES</span>
+          <p class="eyebrow">TIME SERIES</p>
           <h2 id="chartTitle">Indicator</h2>
         </div>
-        <span id="rangeLabel" class="pill">—</span>
+        <span class="pill" id="rangeLabel">—</span>
       </div>
       <div class="chart-wrap">
         <canvas id="mainChart"></canvas>
       </div>
     </section>
 
-    <section class="card data-card">
-      <div class="section-heading table-heading">
+    <!-- NEW: comparison of all selected series at one point in time -->
+    <section class="compare-card">
+      <div class="section-heading">
         <div>
-          <span class="eyebrow">RAW DATA</span>
-          <h2>Monthly observations</h2>
+          <p class="eyebrow">POINT-IN-TIME COMPARISON</p>
+          <h2>SNAPSHOT — <span id="compareMonthLabel" class="cmp-month">—</span></h2>
         </div>
-        <input id="search" type="search" placeholder="Search rows…" autocomplete="off">
+        <span class="pill" id="compareMeta"></span>
       </div>
 
+      <div class="compare-controls">
+        <div class="control">
+          <label for="compareDate">Compare at</label>
+          <select id="compareDate"></select>
+        </div>
+        <p class="pill">Ranks every ticked series at the chosen month.<br>Values stay in their native units (%, $B).</p>
+      </div>
+
+      <div class="cmp-grid" id="compareTiles"></div>
+
+      <div class="cmp-chart-wrap">
+        <canvas id="compareChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Raw data table (unchanged behaviour) -->
+    <section class="data-card">
+      <div class="table-heading">
+        <p class="eyebrow">RAW DATA</p>
+        <h2>Monthly observations</h2>
+        <input type="text" id="search" placeholder="Search…">
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Time period</th>
-              <th>Month</th>
-              <th>CPI change</th>
-              <th>OCR</th>
-              <th>OCR change</th>
-              <th>MP</th>
-              <th>WPI change</th>
-              <th>Unemployment</th>
-              <th>Underemployment</th>
-              <th>Participation</th>
-              <th>Underutilisation</th>
-              <th>Fiscal position</th>
-              <th>Fiscal stance</th>
-              <th>GDP change</th>
+              <th>Time period</th><th>Month</th><th>CPI change</th><th>OCR</th>
+              <th>OCR change</th><th>MP</th><th>WPI change</th><th>Unemployment</th>
+              <th>Underemployment</th><th>Participation</th><th>Underutilisation</th>
+              <th>Fiscal position</th><th>Fiscal stance</th><th>GDP change</th>
             </tr>
           </thead>
           <tbody id="dataBody"></tbody>
@@ -113,11 +110,12 @@
       </div>
     </section>
 
-    <footer>
-      <span>Source: supplied CSV dataset</span>
-      <span id="datasetInfo">—</span>
-    </footer>
   </main>
+
+  <footer class="wrap">
+    <span>Source: supplied CSV dataset</span>
+    <span id="datasetInfo">—</span>
+  </footer>
 
   <script src="app.js"></script>
 </body>
