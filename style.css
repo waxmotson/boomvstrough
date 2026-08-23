@@ -5,6 +5,7 @@
   --border: #071304;
   --light: #2a3229;
   --zero: #ebebeb;
+  --green: #8bc34a;
 }
 
 * {
@@ -223,7 +224,7 @@ th {
 }
 
 tbody tr:hover {
-  background: #f7f7f7;
+  background: rgba(139, 195, 74, 0.15);
 }
 
 .period,
