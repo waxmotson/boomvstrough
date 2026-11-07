@@ -1,3 +1,5 @@
+@font-face { font-family: 'Bestigia'; src: url('Bestigia-Regular.ttf') format('truetype'); font-display: swap; }
+
 :root {
   --bg: rgb(29, 32, 31);;
   --text: #fff;
@@ -17,6 +19,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
+  font-family: 'Bricolage Grotesque', sans-serif;
 }
 
 .wrap {
@@ -490,3 +493,5 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+h1, h2, h3 { font-family: 'Bestigia', 'Bricolage Grotesque', sans-serif; font-weight: normal; }
