@@ -1,4 +1,4 @@
-@font-face { font-family: 'Bestigia'; src: url('Bestigia-Regular.ttf') format('truetype'); font-display: swap; }
+@font-face { font-family: 'Tomkins Display'; src: url('TomkinsDisplay-Regular.woff2') format('woff2'); font-display: swap; }
 
 :root {
   --bg: rgb(29, 32, 31);;
@@ -494,4 +494,4 @@ footer {
   }
 }
 
-h1, h2, h3 { font-family: 'Bestigia', 'Bricolage Grotesque', sans-serif; font-weight: normal; }
+h1, h2, h3 { font-family: 'Tomkins Display', 'Bricolage Grotesque', sans-serif; font-weight: normal; }
